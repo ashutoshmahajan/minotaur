@@ -646,7 +646,6 @@ void Problem::delMarkedCons()
   }
 }
 
-
 void Problem::delMarkedVars()
 {
   assert(engine_ == 0 ||
@@ -1404,6 +1403,20 @@ void Problem::write(std::ostream &out, std::streamsize out_p) const
   //  (*citer)->displayFunctionMap();
   //}
 
+}
+
+void Problem::shuffleRows(std::ostream &out, UInt i, UInt j) const
+{
+  out<<"Replacing "<<i<<" with "<<j<<std::endl;
+  Constraint* cptr = new Constraint(cons_[i]->id_, cons_[i]->index_, cons_[i]->f_, cons_[i]->lb_, cons_[i]->ub_, cons_[i]->name_);
+  cons_[i]->f_ = cons_[j]->f_;
+  cons_[i]->lb_ = cons_[j]->lb_;
+  cons_[i]->ub_ = cons_[j]->ub_;
+  cons_[i]->name_ = cons_[j]->name_;
+  cons_[j]->f_ = cptr->f_;
+  cons_[j]->lb_ = cptr->lb_;
+  cons_[j]->ub_ = cptr->ub_;
+  cons_[j]->name_ = cptr->name_;
 }
 
 

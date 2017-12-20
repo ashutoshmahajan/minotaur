@@ -570,6 +570,9 @@ namespace Minotaur {
     /// only for debugging, developing etc.
     virtual void write(std::ostream &out, std::streamsize out_p=6) const;
 
+    /// only for debugging, developing etc.
+    virtual void shuffleRows(std::ostream &out, UInt i, UInt j) const;
+
     /// Write the problem size to logger_
     virtual void writeSize(std::ostream &out) const;
 

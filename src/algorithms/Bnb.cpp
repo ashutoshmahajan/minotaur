@@ -13,14 +13,16 @@
 
 #include <iomanip>
 #include <iostream>
-
+#include <typeinfo>
 #include "MinotaurConfig.h"
 #include "BndProcessor.h"
 #include "BranchAndBound.h"
+#include "Constraint.h"
 #include "EngineFactory.h"
 #include "Environment.h"
 #include "IntVarHandler.h"
 #include "LexicoBrancher.h"
+#include "LinearFunction.h"
 #include "LinearHandler.h"
 #include "LinFeasPump.h"
 #include "Logger.h"
@@ -46,7 +48,7 @@
 #include "SOS2Handler.h"
 #include "Timer.h"
 #include "TreeManager.h"
-
+#include "Types.h"
 #include "AMPLHessian.h"
 #include "AMPLInterface.h"
 #include "AMPLJacobian.h"
@@ -243,6 +245,7 @@ void loadProblem(EnvPtr env, MINOTAUR_AMPL::AMPLInterface* iface,
 
   timer->start();
   oinst = iface->readInstance(options->findString("problem_file")->getValue());
+
   env->getLogger()->msgStream(LogInfo) << me 
     << "time used in reading instance = " << std::fixed 
     << std::setprecision(2) << timer->query() << std::endl;
@@ -266,7 +269,6 @@ void loadProblem(EnvPtr env, MINOTAUR_AMPL::AMPLInterface* iface,
       new MINOTAUR_AMPL::AMPLHessian(iface);
     oinst->setHessian(hess);
   }
-
   // set initial point
   oinst->setInitialPoint(iface->getInitialPoint(), 
       oinst->getNumVars()-iface->getNumDefs());
@@ -282,6 +284,8 @@ void loadProblem(EnvPtr env, MINOTAUR_AMPL::AMPLInterface* iface,
     env->getLogger()->msgStream(LogInfo) << me 
       << "objective sense: minimize" << std::endl;
   }
+
+  // env->getLogger()->msgStream(LogInfo)<< me << oinst->cons_<< std::endl;
 
   delete timer;
 }
@@ -478,6 +482,9 @@ int main(int argc, char** argv)
   HandlerVector handlers;
   int err = 0;
   double obj_sense = 1.0;
+  // ProblemPtr instb;
+  // VariableSet* vs = new VariableSet();
+  // std::streamsize a = 1;
 
   env->startTimer(err);
   if (err) {
@@ -491,14 +498,25 @@ int main(int argc, char** argv)
 
   // Parse command line for options set by the user.
   env->readOptions(argc, argv);
-  
   overrideOptions(env);
   if (0!=showInfo(env)) {
     goto CLEANUP;
   }
-
   loadProblem(env, iface, oinst, &obj_sense);
+  // oinst->write(env->getLogger()->msgStream(LogInfo), a);
   orig_v = new VarVector(oinst->varsBegin(), oinst->varsEnd());
+  // env->getLogger()->msgStream(LogInfo)<<orig_v->size()<<std::endl;
+  // env->getLogger()->msgStream(LogInfo)<<orig_v->get(0)-><<std::endl;
+
+  // instb = oinst->clone();
+  // instb->getConstraint(0)->getLinearFunction()->getVars(vs);
+  // for(std::set<ConstVariablePtr, CompareVariablePtr>::iterator it=vs->begin(); it!=vs->end(); ++it){
+  //   // env->getLogger()->msgStream(LogInfo)<<it->get()->getName()<<endl;
+  //   it->get()->write(env->getLogger()->msgStream(LogInfo));
+  // }
+  // env->getLogger()->msgStream(LogInfo)<<vs->begin()<<std::endl;
+  // env->getLogger()->msgStream(LogInfo)<<oinst->getConstraint(0)->getLinearFunction()->
+  oinst->shuffleRows(env->getLogger()->msgStream(LogInfo), 1, 2);
   pres = presolve(env, oinst, iface->getNumDefs(), handlers);
   handlers.clear();
   if (Finished != pres->getStatus() && NotStarted != pres->getStatus()) {
