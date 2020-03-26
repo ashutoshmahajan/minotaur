@@ -1,9 +1,0 @@
-libdir=/home/mustafa.vora/minotaur/third-party/lib
-includedir=/home/mustafa.vora/minotaur/third-party/include
-
-Name: LAPACK
-Description: FORTRAN reference implementation of LAPACK Linear Algebra PACKage
-Version: 3.7.1
-URL: http://www.netlib.org/lapack/
-Libs: -L${libdir} -llapack
-Requires.private: blas

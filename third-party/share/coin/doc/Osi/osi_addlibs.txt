@@ -1,1 +1,0 @@
--L/home/mustafa.vora/minotaur/third-party/lib -lOsi -lCoinUtils -lbz2 -lz -llapack -lblas -lm

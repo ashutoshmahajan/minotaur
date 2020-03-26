@@ -1,1 +1,0 @@
-            -L/home/mustafa.vora/minotaur/third-party/lib -lipopt -llapack -lblas -ldl -lcoinmumps -lblas             -lstdc++ -lm

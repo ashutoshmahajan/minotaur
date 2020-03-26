@@ -1,8 +1,0 @@
-libdir=/home/mustafa.vora/minotaur/third-party/lib
-includedir=/home/mustafa.vora/minotaur/third-party/include
-
-Name: BLAS
-Description: FORTRAN reference implementation of BLAS Basic Linear Algebra Subprograms
-Version: 3.7.1
-URL: http://www.netlib.org/blas/
-Libs: -L${libdir} -lblas
