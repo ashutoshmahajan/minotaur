@@ -1,1 +1,0 @@
-/usr/bin/c++  -fPIC -Wall -pedantic -Wmissing-include-dirs -Wunused -Wextra -Wundef -Wshadow -Wredundant-decls -Woverloaded-virtual -fopenmp -g  -shared -Wl,-soname,libmntrfiltersqp.so -o libmntrfiltersqp.so CMakeFiles/mntrfiltersqp.dir/FilterSQPEngine.cpp.o -Wl,-rpath,:::::::::::::::::::::::::::::::::::::::: 

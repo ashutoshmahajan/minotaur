@@ -1,2 +1,0 @@
-/usr/bin/ar qc libmntrbqpd.a  CMakeFiles/mntrbqpd.dir/BqpdEngine.cpp.o CMakeFiles/mntrbqpd.dir/BqpdAux.f.o CMakeFiles/mntrbqpd.dir/BqpdAux2.f.o
-/usr/bin/ranlib libmntrbqpd.a

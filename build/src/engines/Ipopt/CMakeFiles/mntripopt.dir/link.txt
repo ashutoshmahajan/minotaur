@@ -1,1 +1,0 @@
-/usr/bin/c++  -fPIC -Wall -pedantic -Wmissing-include-dirs -Wunused -Wextra -Wundef -Wshadow -Wredundant-decls -Woverloaded-virtual -fopenmp -g  -shared -Wl,-soname,libmntripopt.so -o libmntripopt.so CMakeFiles/mntripopt.dir/IpoptDummy.f.o CMakeFiles/mntripopt.dir/IpoptEngine.cpp.o -Wl,-rpath,:::::::::::::::::::::::::::::::::::::::: -lgfortran -lquadmath 

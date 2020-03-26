@@ -1,5 +1,0 @@
-/home/mustafa.vora/minotaur/build/CMakeFiles/FortranCInterface/CMakeFiles/rebuild_cache.dir
-/home/mustafa.vora/minotaur/build/CMakeFiles/FortranCInterface/CMakeFiles/myfort.dir
-/home/mustafa.vora/minotaur/build/CMakeFiles/FortranCInterface/CMakeFiles/symbols.dir
-/home/mustafa.vora/minotaur/build/CMakeFiles/FortranCInterface/CMakeFiles/edit_cache.dir
-/home/mustafa.vora/minotaur/build/CMakeFiles/FortranCInterface/CMakeFiles/FortranCInterface.dir
