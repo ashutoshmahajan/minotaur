@@ -25,7 +25,6 @@
 #include "Function.h"
 #include "LinMods.h"
 #include "Logger.h"
-#include "SecantMod.h"
 #include "Node.h"
 #include "Objective.h"
 #include "Operations.h"
@@ -34,6 +33,7 @@
 #include "ProblemSize.h"
 #include "Relaxation.h"
 #include "SolutionPool.h"
+#include "Timer.h"
 #include "Variable.h"
 #include <string.h>
 
@@ -52,7 +52,8 @@ CxQuadHandler::CxQuadHandler(EnvPtr env, ProblemPtr problem, EnginePtr nlp_e)
   problem_ = problem; 
   logger_  = env_->getLogger();
   nlpe_ = nlp_e;
-  resetStats_(); 
+  resetStats_();
+  timer_ = env->getTimer(); 
 }
 
 
@@ -100,6 +101,7 @@ SolveStatus CxQuadHandler::presolve(PreModQ *, bool *changed) {
   Convexity cvx;
   double lb, ub;
   bool is_inf;
+  double stime = timer_->query();
 
   *changed = false;
 
@@ -136,6 +138,9 @@ SolveStatus CxQuadHandler::presolve(PreModQ *, bool *changed) {
     f = c->getFunction();
     cvx = f->getQuadraticFunction()->isConvex();
     propBounds_(f, lb, ub);
+    if (lb > ub + vTol_ || ub < lb - vTol_) {
+      status = SolvedInfeasible;
+    }
     if (cvx == Convex) {
       if (c->getUb() > ub + bTol_) {
         c->setUB(ub);
@@ -146,6 +151,34 @@ SolveStatus CxQuadHandler::presolve(PreModQ *, bool *changed) {
         c->setLB(lb);
         *changed = true;
       }
+    }
+  }
+  
+  if (status == Started) {
+    status = Finished;
+  }
+  pStats_.time += timer_->query()-stime;
+  return status;
+}
+
+bool CxQuadHandler::presolveNode(RelaxationPtr rel, NodePtr, SolutionPoolPtr,
+		  ModVector &p_mods, ModVector &r_mods) {
+  bool is_inf;
+  VariablePtr y;
+  ConstraintPtr c;
+  QuadraticFunctionPtr qf;
+  double lb, ub;
+  double stime = timer_->query();
+  bool changed = false;
+
+  for (ConstraintConstIterator cit = cvCons_.begin(); cit != cvCons_.end();
+      ++cit) {
+    c = *cit;
+    y = c->getFunction()->getLinearFunction()->termsBegin()->first;
+    qf = c->getFunction()->getQuadraticFunction();
+    propBounds_(qf, lb, ub); //returns always false
+    if (updatePBounds_(y, lb, ub, rel, &changed, true, p_mods, r_mods) < 0) {
+      return true;
     }
   }
 }
@@ -206,6 +239,7 @@ void CxQuadHandler::separate(ConstSolutionPtr sol, NodePtr, RelaxationPtr,
   Convexity cvx;
   std::stringstream sstm;
   LinearFunctionPtr lf = LinearFunctionPtr();
+  double stime = timer_->query();
 
   grad = new double[rel_->getNumVars()];
   //y = new double[rel_->getNumVars()];
@@ -254,6 +288,7 @@ void CxQuadHandler::separate(ConstSolutionPtr sol, NodePtr, RelaxationPtr,
       }
     }
   }
+  sStats_.time += timer_->query()-stime;
 }
 
 void CxQuadHandler::addInitLinearX_(const double *x) {
@@ -713,6 +748,73 @@ int CxQuadHandler::updatePBounds_(VariablePtr v, double lb, double ub,
 #endif
   }
 
+  return 0;
+}
+
+int CxQuadHandler::updatePBounds_(VariablePtr v, double lb, double ub,
+                                  RelaxationPtr rel, bool *changed,
+                                  bool mod_rel, ModVector &p_mods,
+                                  ModVector &r_mods) {
+  VarBoundMod2Ptr b2mod;
+  VarBoundModPtr bmod;
+
+  if (ub < v->getLb() - bTol_ || lb > v->getUb() + bTol_) { 
+    return -1;
+  }
+  
+  if (ub < v->getUb() - bTol_ && (v->getUb() == INFINITY ||
+                                  ub < v->getUb()-fabs(v->getUb())*rTol_) &&
+      lb > v->getLb() + aTol_ && (v->getLb() == -INFINITY ||
+                                  lb > v->getLb()+fabs(v->getLb())*rTol_)) {
+    *changed = true;
+    ++pStats_.vBnd;
+    b2mod = (VarBoundMod2Ptr) new VarBoundMod2(v, lb, ub);
+    b2mod->applyToProblem(problem_);
+    p_mods.push_back(b2mod);
+#if SPEW
+    b2mod->write(logger_->msgStream(LogDebug2));
+#endif
+    if (mod_rel) {
+      b2mod = (VarBoundMod2Ptr)
+              new VarBoundMod2(rel->getRelaxationVar(v), lb, ub);
+      b2mod->applyToProblem(rel);
+      r_mods.push_back(b2mod);
+    }
+  } else if (lb > v->getLb()+bTol_ && 
+             (v->getLb()==-INFINITY || lb>v->getLb()+rTol_*fabs(v->getLb()))) {
+    ++pStats_.vBnd;
+    *changed = true;
+    bmod  = (VarBoundModPtr) new VarBoundMod(v, Lower, lb);
+    bmod->applyToProblem(problem_);
+    p_mods.push_back(bmod);
+#if SPEW
+    bmod->write(logger_->msgStream(LogDebug2));
+#endif 
+
+    if (true == mod_rel) {
+      bmod = (VarBoundModPtr)
+             new VarBoundMod(rel->getRelaxationVar(v), Lower, lb);
+      bmod->applyToProblem(rel);
+      r_mods.push_back(bmod);
+    }
+  } else if (ub < v->getUb()-bTol_ &&
+             (v->getUb()== INFINITY || ub<v->getUb()-rTol_*fabs(v->getUb()))) {
+    ++pStats_.vBnd;
+    *changed = true;
+    bmod  = (VarBoundModPtr) new VarBoundMod(v, Upper, ub);
+    bmod->applyToProblem(problem_);
+    p_mods.push_back(bmod);
+#if SPEW
+    bmod->write(logger_->msgStream(LogDebug2));
+#endif 
+    
+    if (true == mod_rel) {
+      bmod  = (VarBoundModPtr)
+               new VarBoundMod(rel->getRelaxationVar(v), Upper, ub);
+      bmod->applyToProblem(rel);
+      r_mods.push_back(bmod);
+    }
+  } 
   return 0;
 }
 

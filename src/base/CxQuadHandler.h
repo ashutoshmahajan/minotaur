@@ -24,6 +24,7 @@ class Engine;
 class Function;
 class LinearFunction;
 class Problem;
+class Timer;
 class QuadraticFunction;
 typedef LinearFunction* LinearFunctionPtr;
 typedef QuadraticFunction* QuadraticFunctionPtr;
@@ -104,7 +105,7 @@ public:
   // Implement Handler::presolveNode().
   bool presolveNode(RelaxationPtr rel, NodePtr node,
                     SolutionPoolPtr s_pool, ModVector &p_mods,
-                    ModVector &r_mods) {};
+                    ModVector &r_mods);
 
   void writeStats(std::ostream &out) const;
 
@@ -112,7 +113,7 @@ public:
   std::string getName() const;
 
 private:
-  /// Store statistics of presolving.
+  /// Store statistics of separation.
   struct SepaStats 
   {
     int iters;   ///> Number of times separation routine called. 
@@ -150,6 +151,9 @@ private:
 
   /// Log
   LoggerPtr logger_;
+
+  /// To keep time
+  const Timer* timer_;
 
   /// For log
   static const std::string me_;
@@ -254,6 +258,10 @@ private:
    * otherwise.
    */
   int updatePBounds_(VariablePtr v, double lb, double ub, bool *changed);
+  
+  int updatePBounds_(VariablePtr v, double lb, double ub, RelaxationPtr rel,
+                     bool *changed, bool mod_rel, ModVector &p_mods,
+                     ModVector &r_mods);
 };
 
 /// Shared pointer to CxQuadHandler.
