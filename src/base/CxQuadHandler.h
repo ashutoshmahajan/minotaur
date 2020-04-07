@@ -26,8 +26,24 @@ class LinearFunction;
 class Problem;
 class Timer;
 class QuadraticFunction;
+class LinConMod;
 typedef LinearFunction* LinearFunctionPtr;
 typedef QuadraticFunction* QuadraticFunctionPtr;
+typedef LinConMod* LinConModPtr;
+
+struct LinQuad {
+  /** Constraint of type y \geq qf where qf is concave
+   * Equalilty constraint with convex or concave functions
+   * We only store the secant, the tangent is found by separate function. 
+   */
+  QuadraticFunctionPtr qf; /// Quadratic Function qf
+  VariablePtr y;           /// Variable y
+  ConstraintPtr sec;       /// Secant of the constraint.
+};
+
+typedef LinQuad* LinQuadPtr;
+typedef std::vector<LinQuadPtr> LinQuadVec;
+typedef LinQuadVec::iterator LinQuadVecIter;
 
 struct CxQStats {
   size_t nlpS;      /// Number of nlps solved.
@@ -93,7 +109,7 @@ public:
 
   // Implement Handler::getBrMod().
   ModificationPtr getBrMod(BrCandPtr cand, DoubleVector &x, 
-                           RelaxationPtr rel, BranchDirection dir) {};
+                           RelaxationPtr rel, BranchDirection dir);
 
   // Implement Handler::getBranches().
   Branches getBranches(BrCandPtr cand, DoubleVector & x,
@@ -167,11 +183,10 @@ private:
    */
   ConstraintVector cxCons_;
 
-  /** One sided concave constraints
-   * Equality constraint with convex or concave functions
-   * Range constraints with convex or concave functions
+  /** Constraint of type y \geq qf where qf is concave
+   * Equalilty constraint with convex or concave functions
    */
-  ConstraintVector cvCons_;
+  LinQuadVec cvCons_;
   
   /// NLP/QP Engine used to solve convex QP relaxation of the problem
   EnginePtr nlpe_;
@@ -198,14 +213,30 @@ private:
   void addInitLinearX_(const double *x);
   
   /// Adds secants to concave constraints
-  void addSecant_(QuadraticFunctionPtr qf, Convexity cvx, double rhs,
-                  std::vector<BoundType> b, VariablePtr y, DoubleVector evals);
+  void addSecant_(LinQuadPtr lqf, double rhs, std::vector<BoundType> b,
+                  DoubleVector evals);
+
+  void addSecant_(LinQuadPtr lqf, double rhs, std::vector<BoundType> b,
+                  DoubleVector evals, RelaxationPtr rel, double vlb,
+                  double vub, VariablePtr v, LinConModPtr lmod);
 
   /// creates a convex NLP relaxation of the problem
   void createConvexRelaxation_();
 
   /// Delete Quad constraints from the relaxation after solving convex QCQP.
   void deleteQuadConsfromRel_();
+
+  /** Find the maximum (minimum) point and the function value of a
+   * convex (concave) quadratic function within the bounds.
+   */
+  void findExtPt_(LinQuadPtr lqf, double *ext_qf,
+                  std::vector<BoundType> &ext_b, double *x,
+                  DoubleVector &evals);
+
+  void findExtPt_(LinQuadPtr lqf, double *ext_qf,
+                  std::vector<BoundType> &ext_b, double *x,
+                  DoubleVector &evals, double vlb, double vub,
+                  VariablePtr v);
 
   /** For a convex constraint, if the LP solution does not satisfy it
    * then that point will be separated.

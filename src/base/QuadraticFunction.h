@@ -250,7 +250,7 @@ namespace Minotaur {
        * convex (PSD hessian), concave (NSD hessian) or nonconvex (Indefinte
        * hessian).
        */
-      Convexity isConvex();
+      Convexity getConvexity();
 
       void setConvexity(Convexity convex) { convex_ = convex; }
 

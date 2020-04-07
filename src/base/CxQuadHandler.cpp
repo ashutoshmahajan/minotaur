@@ -20,6 +20,7 @@
 #include "Branch.h"
 #include "BrVarCand.h"
 #include "Constraint.h"
+#include "ConBoundMod.h"
 #include "CxQuadHandler.h"
 #include "Environment.h"
 #include "Function.h"
@@ -44,11 +45,13 @@ using namespace Minotaur;
 const std::string CxQuadHandler::me_ = "CxQuadHandler: ";
 
 CxQuadHandler::CxQuadHandler(EnvPtr env, ProblemPtr problem, EnginePtr nlp_e)
-  : eTol_(1e-8),
+  : aTol_(1e-5),
     bTol_(1e-8),
-    vTol_(1e-6)
+    eTol_(1e-8),
+    rTol_(1e-4)
 {
   env_ = env;
+  vTol_ = env_->getOptions()->findDouble("feasAbs_tol")->getValue();
   problem_ = problem; 
   logger_  = env_->getLogger();
   nlpe_ = nlp_e;
@@ -71,6 +74,8 @@ void CxQuadHandler::addConstraint(ConstraintPtr newcon)
   Convexity cvx = newcon->getConvexity();
   LinearFunctionPtr lf = newcon->getFunction()->getLinearFunction();
   QuadraticFunctionPtr qf = newcon->getFunction()->getQuadraticFunction();
+  VariablePtr y;
+  LinQuadPtr lqf;
   
   if (cvx == Convex) {
     cxCons_.push_back(newcon);
@@ -78,14 +83,24 @@ void CxQuadHandler::addConstraint(ConstraintPtr newcon)
   } else if (cvx == Concave) {
     assert(lf->getNumTerms() == 1);
     assert(lf->termsBegin()->second == -1.0);
-    cvCons_.push_back(newcon);
+    y = lf->termsBegin()->first;
+    lqf = new LinQuad();
+    lqf->qf = qf;
+    lqf->y = y;
+    lqf->sec = ConstraintPtr();
+    cvCons_.push_back(lqf);
     cons_.push_back(newcon);
   } else if (cvx == Nonconvex) {
-    assert(qf->isConvex() != Nonconvex);
+    assert(qf->getConvexity() != Nonconvex);
     assert(lf->getNumTerms() == 1);
     assert(lf->termsBegin()->second == -1.0);
     cxCons_.push_back(newcon);
-    cvCons_.push_back(newcon);
+    y = lf->termsBegin()->first;
+    lqf = new LinQuad();
+    lqf->qf = qf;
+    lqf->y = y;
+    lqf->sec = ConstraintPtr();
+    cvCons_.push_back(lqf);
     cons_.push_back(newcon);
   } else {
     assert(!"Unknown Convexity constraint cannot be added to CxQuadHandler");
@@ -105,13 +120,12 @@ SolveStatus CxQuadHandler::presolve(PreModQ *, bool *changed) {
 
   *changed = false;
 
-  for (ConstraintConstIterator it = cvCons_.begin(); it != cvCons_.end();
+  for (LinQuadVecIter it = cvCons_.begin(); it != cvCons_.end();
        ++it) {
-    c = *it;
-    y = c->getFunction()->getLinearFunction()->termsBegin()->first;
-    qf = c->getFunction()->getQuadraticFunction();
+    y = (*it)->y;
+    qf = (*it)->qf;
     propBounds_(qf, lb, ub); //returns false always
-    cvx = qf->isConvex();
+    cvx = qf->getConvexity();
     if (cvx == Convex) {
       /** lower bound of a convex quadratic function with no linear parts
        * cannot be less than 0
@@ -136,9 +150,10 @@ SolveStatus CxQuadHandler::presolve(PreModQ *, bool *changed) {
        ++it) {
     c = *it;
     f = c->getFunction();
-    cvx = f->getQuadraticFunction()->isConvex();
+    cvx = f->getQuadraticFunction()->getConvexity();
     propBounds_(f, lb, ub);
-    if (lb > ub + vTol_ || ub < lb - vTol_) {
+    if (lb > ub + vTol_ || ub < lb - vTol_ ||
+        lb > c->getUb() + aTol_ || ub < c->getLb() - aTol_) {
       status = SolvedInfeasible;
     }
     if (cvx == Convex) {
@@ -166,19 +181,48 @@ bool CxQuadHandler::presolveNode(RelaxationPtr rel, NodePtr, SolutionPoolPtr,
   bool is_inf;
   VariablePtr y;
   ConstraintPtr c;
+  FunctionPtr f;
+  Convexity cvx;
+  ConBoundModPtr cmod;
   QuadraticFunctionPtr qf;
   double lb, ub;
   double stime = timer_->query();
   bool changed = false;
 
-  for (ConstraintConstIterator cit = cvCons_.begin(); cit != cvCons_.end();
-      ++cit) {
-    c = *cit;
-    y = c->getFunction()->getLinearFunction()->termsBegin()->first;
-    qf = c->getFunction()->getQuadraticFunction();
+  for (LinQuadVecIter it = cvCons_.begin(); it != cvCons_.end();
+      ++it) {
+    y = (*it)->y;
+    qf = (*it)->qf;
     propBounds_(qf, lb, ub); //returns always false
     if (updatePBounds_(y, lb, ub, rel, &changed, true, p_mods, r_mods) < 0) {
       return true;
+    }
+  }
+
+  for (ConstraintConstIterator it = cxCons_.begin(); it != cxCons_.end();
+       ++it) {
+    c = *it;
+    f = c->getFunction();
+    cvx = f->getQuadraticFunction()->getConvexity();
+    propBounds_(f, lb, ub);
+    if (lb > ub + vTol_ || ub < lb - vTol_ ||
+        lb > c->getUb() + aTol_ || ub < c->getLb() - aTol_) {
+      return true;
+    }
+    if (cvx == Convex) {
+      if (c->getUb() > ub + bTol_) {
+        cmod = (ConBoundModPtr) new ConBoundMod(c, Upper, ub);
+        cmod->applyToProblem(problem_);
+        p_mods.push_back(cmod);
+        changed = true;
+      }
+    } else {
+      if (c->getLb() < lb - bTol_) {
+        cmod = (ConBoundModPtr) new ConBoundMod(c, Lower, lb);
+        cmod->applyToProblem(problem_);
+        p_mods.push_back(cmod);
+        changed = true;
+      }
     }
   }
 }
@@ -249,7 +293,7 @@ void CxQuadHandler::separate(ConstSolutionPtr sol, NodePtr, RelaxationPtr,
     act = c->getActivity(x, &error);
     if (error == 0) {
       f = c->getFunction();
-      cvx = f->getQuadraticFunction()->isConvex();
+      cvx = f->getQuadraticFunction()->getConvexity();
       memset(grad, 0, rel_->getNumVars()*sizeof(double));
       //memset(y, 0, rel_->getNumVars()*sizeof(double));
       f->evalGradient(x, grad, &error);
@@ -291,6 +335,49 @@ void CxQuadHandler::separate(ConstSolutionPtr sol, NodePtr, RelaxationPtr,
   sStats_.time += timer_->query()-stime;
 }
 
+ModificationPtr CxQuadHandler::getBrMod(BrCandPtr cand, DoubleVector &x,
+                                        RelaxationPtr rel, BranchDirection dir)
+{
+  LinModsPtr lmods = (LinModsPtr) new LinMods();
+  LinConModPtr lmod;
+  BrVarCandPtr vcand = dynamic_cast <BrVarCand*> (cand);
+  VariablePtr v = vcand->getVar();
+  UInt vind = v->getIndex();
+  ConstraintPtr c;
+  double *z;
+  QuadraticFunctionPtr qf;
+  double ext_qf, lb, ub;
+  std::vector<BoundType> ext_b;
+  DoubleVector evals;
+
+  if (dir == DownBranch) {
+    lb = v->getLb();
+    ub = x[vind];
+  } else {
+    lb = x[vind];
+    ub = v->getUb();
+  }
+
+  for (LinQuadVecIter it = cvCons_.begin(); it != cvCons_.end();
+       ++it) {
+    qf = (*it)->qf;
+    z = new double[rel->getNumVars()];
+    memset(z, 0, rel->getNumVars()*sizeof(double));
+    for (VarIntMapConstIterator qit = qf->varsBegin();
+         qit != qf->varsEnd(); ++qit) {
+      if (qit->first->getIndex() == vind) {
+        findExtPt_((*it), &ext_qf, ext_b, z, evals, lb, ub, v);
+        addSecant_((*it), ext_qf, ext_b, evals, rel, lb, ub, v, lmod);
+        if (lmod) {
+          lmods->insert(lmod);
+        }
+        break;
+      }
+    }
+  }
+  return lmods;
+}
+
 void CxQuadHandler::addInitLinearX_(const double *x) {
   int error=0;
   FunctionPtr f;
@@ -311,7 +398,7 @@ void CxQuadHandler::addInitLinearX_(const double *x) {
       if (error == 0) {
         ++(stats_->cuts);
         sstm << "_cxqCutRoot_" << stats_->cuts;
-        if (f->getQuadraticFunction()->isConvex() == Convex) {
+        if (f->getQuadraticFunction()->getConvexity() == Convex) {
           f = (FunctionPtr) new Function(lf);
           con = rel_->newConstraint(f, -INFINITY, con->getUb()-c, sstm.str());
         } else {
@@ -332,12 +419,14 @@ void CxQuadHandler::addInitLinearX_(const double *x) {
   }
 }
 
-void CxQuadHandler::addSecant_(QuadraticFunctionPtr qf, Convexity cvx,
-                               double rhs, std::vector<BoundType> b,
-                               VariablePtr y, DoubleVector evals) {
+void CxQuadHandler::addSecant_(LinQuadPtr lqf, double rhs,
+                               std::vector<BoundType> b, DoubleVector evals) {
   std::vector<BoundType> b1;
   double alpha, alpha_ext;
   double x_val = 0.0, b_val = 0.0;
+  QuadraticFunctionPtr qf = lqf->qf;
+  VariablePtr y = rel_->getRelaxationVar(lqf->y);
+  Convexity cvx = qf->getConvexity();
   UInt i, j, numvars = qf->getNumVars();
   VarIntMapConstIterator it;
   LinearFunctionPtr lf = (LinearFunctionPtr) new LinearFunction();
@@ -408,8 +497,99 @@ void CxQuadHandler::addSecant_(QuadraticFunctionPtr qf, Convexity cvx,
   fnew = (FunctionPtr) new Function(lf);
   if (cvx == Convex) {
     cnew = rel_->newConstraint(fnew, -INFINITY, rhs+alpha_ext*b_val);
+    lqf->sec = cnew;
   } else {
     cnew = rel_->newConstraint(fnew, rhs+alpha_ext*b_val, INFINITY);
+    lqf->sec = cnew;
+  }
+  b1.clear();
+}
+
+void CxQuadHandler::addSecant_(LinQuadPtr lqf, double rhs,
+                               std::vector<BoundType> b, DoubleVector evals,
+                               RelaxationPtr rel, double vlb, double vub,
+                               VariablePtr v, LinConModPtr lmod) {
+  std::vector<BoundType> b1;
+  double alpha, alpha_ext;
+  double x_val = 0.0, b_val = 0.0;
+  QuadraticFunctionPtr qf = lqf->qf;
+  VariablePtr y = rel->getRelaxationVar(lqf->y);
+  Convexity cvx = qf->getConvexity();
+  UInt i, j, numvars = qf->getNumVars();
+  VarIntMapConstIterator it;
+  LinearFunctionPtr lf = (LinearFunctionPtr) new LinearFunction();
+  
+  lf->addTerm(y, 1.0);
+
+  i = 0;
+  for (it = qf->varsBegin(); it != qf->varsEnd(); ++it) {
+    if (b[i] == Lower) {
+      b_val += it->first->getIndex() == v->getIndex() ? vlb : it->first->getLb();
+      x_val += it->first->getIndex() == v->getIndex() ? vlb : it->first->getLb();
+    } else {
+      b_val -= it->first->getIndex() == v->getIndex() ? vub : it->first->getUb();
+      x_val -= it->first->getIndex() == v->getIndex() ? vlb : it->first->getLb();
+    }
+    b1.push_back(Lower);
+    ++i;
+  }
+
+  i = 0;
+  alpha_ext = fabs(rhs - evals[i]) > eTol_ ?
+              (rhs - evals[i])/(x_val - b_val) : 0.0;
+  ++i;
+
+  while (true) {
+    it = qf->varsBegin();
+    j = 0;
+    while (b1[j] == Upper) {
+      b1[j] = Lower;
+      x_val += (b[j] == Lower) ?
+               it->first->getIndex() == v->getIndex() ? vlb : it->first->getLb()
+             - it->first->getIndex() == v->getIndex() ? vub : it->first->getUb() :
+               it->first->getIndex() == v->getIndex() ? vub : it->first->getUb()
+             - it->first->getIndex() == v->getIndex() ? vlb : it->first->getLb();
+      ++it;
+      ++j;
+    }
+    if (j < numvars) {
+      b1[j] = Upper;
+      x_val -= (b[j] == Lower) ?
+               it->first->getIndex() == v->getIndex() ? vlb : it->first->getLb()
+             - it->first->getIndex() == v->getIndex() ? vub : it->first->getUb() :
+               it->first->getIndex() == v->getIndex() ? vub : it->first->getUb()
+             - it->first->getIndex() == v->getIndex() ? vlb : it->first->getLb();
+      if (fabs(rhs - evals[i]) > eTol_) {
+        alpha = (rhs - evals[i])/(x_val - b_val);
+      } else {
+        if (b1 == b) {
+          ++i;
+          continue;
+        }
+        else {
+          alpha = 0.0;
+        }
+      }
+      if (cvx == Convex && alpha < alpha_ext) {
+        alpha_ext = alpha;
+      }
+      if (cvx == Concave && alpha > alpha_ext) {
+        alpha_ext = alpha;
+      }
+    } else {
+      break;
+    }
+    ++i;
+  }
+  for (it = qf->varsBegin(); it != qf->varsEnd(); ++it) {
+    lf->addTerm(rel->getRelaxationVar(it->first), alpha_ext);
+  }
+  if (cvx == Convex) {
+    lmod = (LinConModPtr) new LinConMod(lqf->sec, lf, -INFINITY,
+                                        rhs+alpha_ext*b_val);
+  } else {
+    lmod = (LinConModPtr) new LinConMod(lqf->sec, lf, rhs+alpha_ext*b_val,
+                                        INFINITY);
   }
   b1.clear();
 }
@@ -426,7 +606,7 @@ void CxQuadHandler::createConvexRelaxation_() {
     f = c->getFunction();
     qf = f->getQuadraticFunction();
     fnew = f->cloneWithVars(rel_->varsBegin(), &error);
-    if (qf->isConvex() == Convex) {
+    if (qf->getConvexity() == Convex) {
       cnew = rel_->newConstraint(fnew, -INFINITY, c->getUb());
     } else {
       cnew = rel_->newConstraint(fnew, c->getLb(), INFINITY);
@@ -448,6 +628,150 @@ void CxQuadHandler::deleteQuadConsfromRel_() {
     }
   }
   rel_->delMarkedCons();
+}
+
+void CxQuadHandler::findExtPt_(LinQuadPtr lqf, double *ext_qf,
+                               std::vector<BoundType> &ext_b,
+                               double *x, DoubleVector &evals) {
+  std::vector<BoundType> b;
+  double lb, ub;
+  QuadraticFunctionPtr qf = lqf->qf;
+  Convexity cvx = qf->getConvexity();
+  UInt i, numvars = qf->getNumVars();
+  double eval_qf;
+
+  for (VarIntMapConstIterator it = qf->varsBegin();
+      it != qf->varsEnd(); ++it) {
+    lb = it->first->getLb();
+    ub = it->first->getUb();
+    if (lb <= -INFINITY || ub >= INFINITY) {
+      logger_->errStream() << "can not relax "
+                           << it->first->getName()
+                           << " because bounds on the variable is too weak"
+                           << std::endl;
+      exit(500);
+    }
+    x[it->first->getIndex()] = lb;
+    b.push_back(Lower);
+    ext_b.push_back(Lower);
+  }
+  *ext_qf = qf->eval(x);
+  evals.push_back(*ext_qf);
+  while (true) {
+    if (cvx == Convex) {
+      i = 0;
+      VarIntMapConstIterator it = qf->varsBegin();
+      while (b[i] == Upper) {
+        b[i] = Lower;
+        x[it->first->getIndex()] = it->first->getLb();
+        ++it;
+        ++i;
+      }
+      if (i < numvars) {
+        b[i] = Upper;
+        x[it->first->getIndex()] = it->first->getUb();
+        eval_qf = qf->eval(x);
+        evals.push_back(eval_qf);
+        if (eval_qf > *ext_qf) {
+          ext_b = b;
+          *ext_qf = eval_qf;
+        }
+      } else {
+        break;
+      }
+    } else {
+      i = 0;
+      VarIntMapConstIterator it = qf->varsBegin();
+      while (b[i] == Upper) {
+        b[i] = Lower;
+        x[it->first->getIndex()] = it->first->getLb();
+        ++it;
+        ++i;
+      }
+      if (i < numvars) {
+        b[i] = Upper;
+        x[it->first->getIndex()] = it->first->getUb();
+        eval_qf = qf->eval(x);
+        evals.push_back(eval_qf);
+        if (eval_qf < *ext_qf) {
+          ext_b = b;
+          *ext_qf = eval_qf;
+        }
+      } else {
+        break;
+      }
+    }
+  }
+  b.clear();
+}
+
+void CxQuadHandler::findExtPt_(LinQuadPtr lqf, double *ext_qf,
+                               std::vector<BoundType> &ext_b, double *x,
+                               DoubleVector &evals, double vlb,
+                               double vub, VariablePtr v) {
+  std::vector<BoundType> b;
+  double lb, ub;
+  QuadraticFunctionPtr qf = lqf->qf;
+  Convexity cvx = qf->getConvexity();
+  UInt i, numvars = qf->getNumVars();
+  double eval_qf;
+
+  for (VarIntMapConstIterator it = qf->varsBegin();
+      it != qf->varsEnd(); ++it) {
+    lb = it->first->getIndex() == v->getIndex() ? vlb : it->first->getLb();
+    ub = it->first->getIndex() == v->getIndex() ? vub : it->first->getUb();
+    x[it->first->getIndex()] = lb;
+    b.push_back(Lower);
+    ext_b.push_back(Lower);
+  }
+  *ext_qf = qf->eval(x);
+  evals.push_back(*ext_qf);
+  while (true) {
+    if (cvx == Convex) {
+      i = 0;
+      VarIntMapConstIterator it = qf->varsBegin();
+      while (b[i] == Upper) {
+        b[i] = Lower;
+        x[it->first->getIndex()] = it->first->getLb();
+        ++it;
+        ++i;
+      }
+      if (i < numvars) {
+        b[i] = Upper;
+        x[it->first->getIndex()] = it->first->getUb();
+        eval_qf = qf->eval(x);
+        evals.push_back(eval_qf);
+        if (eval_qf > *ext_qf) {
+          ext_b = b;
+          *ext_qf = eval_qf;
+        }
+      } else {
+        break;
+      }
+    } else {
+      i = 0;
+      VarIntMapConstIterator it = qf->varsBegin();
+      while (b[i] == Upper) {
+        b[i] = Lower;
+        x[it->first->getIndex()] = it->first->getLb();
+        ++it;
+        ++i;
+      }
+      if (i < numvars) {
+        b[i] = Upper;
+        x[it->first->getIndex()] = it->first->getUb();
+        eval_qf = qf->eval(x);
+        evals.push_back(eval_qf);
+        if (eval_qf < *ext_qf) {
+          ext_b = b;
+          *ext_qf = eval_qf;
+        }
+      } else {
+        break;
+      }
+    }
+  }
+  b.clear();
 }
 
 void CxQuadHandler::initLinear_(bool *isInf) {
@@ -585,9 +909,6 @@ void CxQuadHandler::propBounds_(FunctionPtr f, double &lb, double &ub) {
 }
 
 void CxQuadHandler::relax_(RelaxationPtr rel, bool *isInf) {
-  ConstraintPtr c;
-  FunctionType f_type;
-
   rel_ = rel;
   relaxConcaveCons_();
   if (!cxCons_.empty()) {
@@ -599,95 +920,20 @@ void CxQuadHandler::relax_(RelaxationPtr rel, bool *isInf) {
 }
 
 void CxQuadHandler::relaxConcaveCons_() {
-  ConstraintPtr c;
-  VariablePtr y;
-  LinearFunctionPtr lf;
-  Convexity cvx;
-  QuadraticFunctionPtr qf;
-  UInt numvars, i;
   double *x;
-  double lb, ub;
-  std::vector<BoundType> b, ext_b;
-  double eval_qf, ext_qf;
+  std::vector<BoundType> ext_b;
+  double ext_qf;
   DoubleVector evals;
 
   x = new double[rel_->getNumVars()];
   memset(x, 0, rel_->getNumVars()*sizeof(double));
 
-  for (ConstraintConstIterator cit = cvCons_.begin();
-       cit != cvCons_.end(); ++cit) {
-    c = *cit;
-    lf = c->getFunction()->getLinearFunction();
-    y = rel_->getRelaxationVar(lf->termsBegin()->first);
-    qf = c->getFunction()->getQuadraticFunction();
-    numvars = qf->getNumVars();
-    cvx = qf->isConvex();
-    for (VarIntMapConstIterator it = qf->varsBegin();
-        it != qf->varsEnd(); ++it) {
-      lb = it->first->getLb();
-      ub = it->first->getUb();
-      if (lb <= -INFINITY || ub >= INFINITY) {
-        logger_->errStream() << "can not relax "
-                             << it->first->getName()
-                             << " because bounds on the variable is too weak"
-                             << std::endl;
-        exit(500);
-      }
-      x[it->first->getIndex()] = lb;
-      b.push_back(Lower);
-      ext_b.push_back(Lower);
-    }
-    ext_qf = qf->eval(x);
-    evals.push_back(ext_qf);
-    while (true) {
-      if (cvx == Convex) {
-        i = 0;
-        VarIntMapConstIterator it = qf->varsBegin();
-        while (b[i] == Upper) {
-          b[i] = Lower;
-          x[it->first->getIndex()] = it->first->getLb();
-          ++it;
-          ++i;
-        }
-        if (i < numvars) {
-          b[i] = Upper;
-          x[it->first->getIndex()] = it->first->getUb();
-          eval_qf = qf->eval(x);
-          evals.push_back(eval_qf);
-          if (eval_qf > ext_qf) {
-            ext_b = b;
-            ext_qf = eval_qf;
-          }
-        } else {
-          break;
-        }
-      } else {
-        i = 0;
-        VarIntMapConstIterator it = qf->varsBegin();
-        while (b[i] == Upper) {
-          b[i] = Lower;
-          x[it->first->getIndex()] = it->first->getLb();
-          ++it;
-          ++i;
-        }
-        if (i < numvars) {
-          b[i] = Upper;
-          x[it->first->getIndex()] = it->first->getUb();
-          eval_qf = qf->eval(x);
-          evals.push_back(eval_qf);
-          if (eval_qf < ext_qf) {
-            ext_b = b;
-            ext_qf = eval_qf;
-          }
-        } else {
-          break;
-        }
-      }
-    }
-    addSecant_(qf, cvx, ext_qf, ext_b, y, evals);
+  for (LinQuadVecIter it = cvCons_.begin();
+       it != cvCons_.end(); ++it) {
+    findExtPt_((*it), &ext_qf, ext_b, x, evals);
+    addSecant_((*it), ext_qf, ext_b, evals);
   }
   delete [] x;
-  b.clear();
   ext_b.clear();
   evals.clear();
 }

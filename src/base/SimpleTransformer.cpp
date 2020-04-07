@@ -668,7 +668,7 @@ bool SimpleTransformer::checkQuadConvexity_(bool& addCxqHandler) {
       sg_old = Unknown;
       qf_vector = qf->findSubgraphs();
       for (it = qf_vector.begin(); it != qf_vector.end(); ++it) {
-        sg = (*it)->isConvex();
+        sg = (*it)->getConvexity();
         if (sg == Nonconvex) {
           convex_cons = false;
           (*it)->setConvexity(Nonconvex);
@@ -719,7 +719,7 @@ bool SimpleTransformer::checkQuadConvexity_(bool& addCxqHandler) {
     convex_cons = true;
     qf_vector = qf->findSubgraphs();
     for (it = qf_vector.begin(); it != qf_vector.end(); ++it) {
-      sg = (*it)->isConvex();
+      sg = (*it)->getConvexity();
       if (sg == Nonconvex || sg == Concave) {
         convex_cons = false;
         all_convex = false;
@@ -750,7 +750,7 @@ void SimpleTransformer::refQuadCons_(QuadraticFunctionPtr qf, double lb,
   for (QfVector::iterator qit = qf_vector.begin(); qit != qf_vector.end();
       ++qit) {
     if ((*qit)->getNumTerms() > 1) {
-      if ((*qit)->isConvex() == Convex) {
+      if ((*qit)->getConvexity() == Convex) {
         if (lb <= -INFINITY) {
           lbnew = lb;
           cons_cvx = Convex;
@@ -762,7 +762,7 @@ void SimpleTransformer::refQuadCons_(QuadraticFunctionPtr qf, double lb,
             flag = true;
           }
         }
-      } else if ((*qit)->isConvex() == Concave) {
+      } else if ((*qit)->getConvexity() == Concave) {
         if (ub >= INFINITY) {
           ubnew = ub;
           cons_cvx = Convex;

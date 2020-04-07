@@ -135,7 +135,7 @@ QuadraticFunctionPtr QuadraticFunction::cloneWithVars(VariableConstIterator vbeg
       sg->addTerm(*(vbeg+it->first.first->getIndex()),
           *(vbeg+it->first.second->getIndex()), it->second);
     }
-    sg->setConvexity((*qit)->isConvex());
+    sg->setConvexity((*qit)->getConvexity());
     qf->addSubgraph(sg);
   }
   return qf;
@@ -406,7 +406,7 @@ QfVector QuadraticFunction::findSubgraphs()
   return subgraphs_;
 }
 
-Convexity QuadraticFunction::isConvex()
+Convexity QuadraticFunction::getConvexity()
 {
   EigenPtr eptr;
   if (convex_ != Unknown) {
