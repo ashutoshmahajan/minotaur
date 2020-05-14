@@ -54,11 +54,9 @@ struct CxQStats {
 };
 
 /**
- * An CxQuadHandler handles the convex parts of quadratic functions of a
- * problem. For now, we will just handle squares of singleton variables e.g.
- * \f$\sum_ix_i^2 \leq u_0\f$. \f$u_0\f$ could be an auxiliary varible or a
- * constant. Later we will introduce sums of squares of
- * general linear functions as well.
+ * A CxQuadHandler handles the convex parts of quadratic functions of a
+ * problem. It has can handle fully convex constraints or convex (or concave)
+ * quadratic fucntions with auxiliary variables.
  */
 class CxQuadHandler : public Handler {
 public:
@@ -92,26 +90,19 @@ public:
   bool isFeasible(ConstSolutionPtr sol, RelaxationPtr relaxation, 
                   bool &is_inf, double &inf_meas);
 
-  /**
-   * Not implemented yet.
-   */
   void separate(ConstSolutionPtr sol, NodePtr node, RelaxationPtr rel, 
                 CutManager *cutman, SolutionPoolPtr s_pool, ModVector &p_mods,
                 ModVector &r_mods, bool *sol_found,
                 SeparationStatus *status);
 
-
-  /// Return \f$u_0\f$ it is constrained to be an integer.
   void getBranchingCandidates(RelaxationPtr rel, 
                               const DoubleVector &x, ModVector &mods,
                               BrVarCandSet &cands, BrCandVector &,
-                              bool & is_inf) {};
+                              bool & is_inf);
 
-  // Implement Handler::getBrMod().
   ModificationPtr getBrMod(BrCandPtr cand, DoubleVector &x, 
                            RelaxationPtr rel, BranchDirection dir);
 
-  // Implement Handler::getBranches().
   Branches getBranches(BrCandPtr cand, DoubleVector & x,
                        RelaxationPtr rel, SolutionPoolPtr s_pool) {};
 

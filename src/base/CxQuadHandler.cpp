@@ -378,6 +378,13 @@ ModificationPtr CxQuadHandler::getBrMod(BrCandPtr cand, DoubleVector &x,
   return lmods;
 }
 
+void CxQuadHandler::getBranchingCandidates(RelaxationPtr rel,
+                                           const DoubleVector &x, ModVector &,
+                                           BrVarCandSet &cands,
+                                           BrCandVector &, bool &is_inf) {
+  BrVarCandPtr br_can;
+}
+
 void CxQuadHandler::addInitLinearX_(const double *x) {
   int error=0;
   FunctionPtr f;
